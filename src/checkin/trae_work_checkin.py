@@ -6,14 +6,13 @@ new Env('Trae Work 签到')
 
 Trae Work（字节，trae.cn 国内版）每日积分自动签到 · 单文件 · 零依赖（仅 Python 标准库）。
 
-自动识别运行环境：
-  青龙面板（检测 QL_DIR 等）：凭证 json 与脚本同目录 auth-<uid>.json，
-                             cron 无参数直接执行签到；
-  本地运行：               凭证保存在脚本同目录 auths/auth-<uid>.json，
-                             无参数时进入交互菜单。
+运行环境（青龙 / 白虎等面板分支，或本机）自动识别，仅用于显示与凭证默认目录：
+  终端手动运行（TTY）：进入交互菜单；
+  cron / 面板定时任务：无参数直接执行签到；
+  凭证 auth-<uid>.json 两处均读取：脚本同目录 与 auths/ 子目录（按 userId 去重）。
 
 用法：
-  python trae_work_checkin.py            青龙=执行签到 / 本地=交互菜单
+  python trae_work_checkin.py            终端运行=交互菜单 / cron(面板)=执行签到
   python trae_work_checkin.py checkin    执行签到：检查状态 -> 领取
   python trae_work_checkin.py import     从本机 Trae 客户端 storage.json 获取 Token（Windows）
   python trae_work_checkin.py login      浏览器授权登录（Windows 本地执行）
@@ -21,7 +20,8 @@ Trae Work（字节，trae.cn 国内版）每日积分自动签到 · 单文件 �
   python trae_work_checkin.py tokens     查看已保存凭证的 Token 有效期
   python trae_work_checkin.py refresh    强制刷新全部凭证的 Token（无需等签到触发）
 
-凭证：仅读取上述目录的 auth-<uid>.json。凭证不读环境变量；
+凭证：扫描脚本同目录与 auths/ 子目录下的 auth-<uid>.json（两处均读取，
+     按 userId 去重）。凭证不读环境变量；
      可选环境变量 RANDOM_SIGNIN / MAX_RANDOM_DELAY 控制签到前的随机延时（见下方常量区）。
 
 Token 刷新：签到前惰性检查有效期，距到期不足 24 小时（REFRESH_MARGIN）自动调
@@ -59,11 +59,12 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 def _is_qinglong() -> bool:
-    """检测是否运行在青龙面板环境（Linux 容器）。"""
+    """检测是否运行在青龙/白虎等面板环境（Linux 容器）。"""
     if os.getenv("QL_DIR") or os.getenv("QL_DATA_DIR"):
         return True
     try:
-        return Path("/ql/data/scripts").exists() or Path("/ql/scripts").exists()
+        return (Path("/ql/data/scripts").exists() or Path("/ql/scripts").exists()
+                or Path("/app/data/scripts").exists())   # 白虎面板脚本目录
     except OSError:
         return False
 
@@ -82,11 +83,11 @@ UA = f"Trae/{IDE_VERSION}"
 REFRESH_MARGIN = 24 * 3600      # 提前 24 小时判定 token 即将过期
 LOGIN_TIMEOUT = 300             # 登录会话最长 5 分钟
 
-# 随机延时（青龙面板友好）：签到前先睡一个随机时长，避免大量账号同时刻打卡。
+# 随机延时：签到前先睡一个随机时长，避免大量账号同时刻打卡。
 #   RANDOM_SIGNIN  是否启用随机延时（默认 true）
-#   MAX_RANDOM_DELAY  随机延时的上限秒数（默认 3600，即最多 1 小时）
+#   MAX_RANDOM_DELAY  随机延时的上限秒数（默认 180，即最多 3 分钟）
 RANDOM_SIGNIN = os.getenv("RANDOM_SIGNIN", "true").lower() == "true"
-MAX_RANDOM_DELAY = int(os.getenv("MAX_RANDOM_DELAY", "3600"))
+MAX_RANDOM_DELAY = int(os.getenv("MAX_RANDOM_DELAY", "180"))
 
 log = logging.getLogger("trae_checkin")
 
@@ -270,21 +271,26 @@ def persist_cred(uid: str, cred: dict) -> Path:
 
 
 def load_creds() -> list:
-    """读取 auths/auth-<uid>.json 全部凭证，按 userId 去重。返回 [(source, uid, cred)]。"""
+    """读取全部 auth-<uid>.json 凭证，按 userId 去重。返回 [(source, uid, cred)]。
+
+    同时扫描脚本同目录与 auths/ 子目录两种存放位置，
+    兼容青龙（同目录）、本地（auths/）及各面板分支的路径差异。
+    """
     items: dict = {}   # key = userId or uid
-    try:
-        files = sorted(AUTH_DIR.glob("auth-*.json"))
-    except OSError:
-        files = []
-    for p in files:
+    for d in (BASE_DIR, BASE_DIR / "auths"):
         try:
-            cred = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            print(f"⚠️  跳过无法解析的凭证 {p.name}")
+            files = sorted(d.glob("auth-*.json"))
+        except OSError:
             continue
-        uid = p.stem[len("auth-"):]
-        key = str(cred.get("userId") or uid)
-        items.setdefault(key, ("file", uid, cred))
+        for p in files:
+            try:
+                cred = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                print(f"⚠️  跳过无法解析的凭证 {p.name}")
+                continue
+            uid = p.stem[len("auth-"):]
+            key = str(cred.get("userId") or uid)
+            items.setdefault(key, ("file", uid, cred))
     return list(items.values())
 
 
@@ -528,12 +534,20 @@ class Trae:
         # 刷新（或未刷新）后的最新有效期，随结果一并打印/通知
         result["token_exp"] = self.expires_at
 
-        # 先查状态
+        # 先查状态：以服务端 checked_in 为准，已签则跳过领取（幂等，参考通用做法）
         try:
-            self.check_status()
+            st = self.check_status()
         except RuntimeError as e:
             result["status"] = f"查询状态失败: {e}"
             result["ok"] = False
+            return result
+        if isinstance(st, dict) and st.get("checked_in"):
+            result["status"] = "今日已签到"
+            try:
+                result["credits"] = self._parse_credits(self.query_credits())
+            except RuntimeError as e:
+                result["credits"] = f"查询积分失败: {e}"
+            result["ok"] = True
             return result
 
         # 领取积分（服务端可能返回 9074，重试几次）
@@ -608,6 +622,8 @@ class Trae:
             return "领取成功"
         if code == 9074:
             return f"服务端限流，领取失败 ({msg})"
+        if code == 9095:
+            return f"今日已领取 ({msg})"
         for kw in ("已签到", "已领取", "明日再来", "already", "checked", "claimed"):
             if kw in str(msg) or kw in str(r):
                 return f"今日已领取 ({msg})"
@@ -1197,7 +1213,7 @@ def menu() -> int:
 def usage() -> int:
     print(__doc__)
     print("用法:")
-    print("  python trae_work_checkin.py            青龙=执行签到 / 本地=交互菜单")
+    print("  python trae_work_checkin.py            终端运行=交互菜单 / cron(面板)=执行签到")
     print("  python trae_work_checkin.py checkin   执行签到")
     print("  python trae_work_checkin.py import    从本机 Trae 客户端获取 Token")
     print("  python trae_work_checkin.py login     浏览器授权登录")
@@ -1224,8 +1240,9 @@ def main() -> int:
     if cmd == "checkin":
         return do_checkin()
     if not cmd:
-        # 青龙 cron 无参数直接签到；本地无参数进交互菜单
-        return do_checkin() if IS_QL else menu()
+        # 有人在终端运行（TTY）→ 交互菜单；cron / 面板定时任务（非 TTY）→ 直接签到。
+        # 不依赖面板检测分支，避免青龙/白虎等路径差异导致行为不一致。
+        return menu() if sys.stdin.isatty() else do_checkin()
     return usage()
 
 
