@@ -8,6 +8,62 @@
       "description": "",
       "id": 1,
       "order": 0
+    },
+    {
+      "name": "循迹倒车页面",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 5 0 0 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 2,
+      "order": 1
+    },
+    {
+      "name": "无有效路径",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtMRAInfo 3 3 0 1",
+      "category": "",
+      "description": "",
+      "id": 3,
+      "order": 2
+    },
+    {
+      "name": "车门打开",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 5 0 E 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 4,
+      "order": 3
+    },
+    {
+      "name": "请系好安全带",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 5 0 F 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 8,
+      "order": 4
+    },
+    {
+      "name": "事件恢复",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 0 0 0 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 5,
+      "order": 5
+    },
+    {
+      "name": "无有效路径重置",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtMRAInfo 3 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 6,
+      "order": 6
+    },
+    {
+      "name": "车门打开重置",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 5 0 0 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 7,
+      "order": 7
     }
   ]
 }

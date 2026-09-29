@@ -266,12 +266,20 @@
       "order": 32
     },
     {
+      "name": "请系好安全带",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 1 0 F 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 55,
+      "order": 33
+    },
+    {
       "name": "剩余3米",
       "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtAPARPAInfo 0 3 3 0 0 0 0 0 0 0 0 0 0 0 0 0 6.2 0 0 0",
       "category": "",
       "description": "",
       "id": 49,
-      "order": 33
+      "order": 34
     },
     {
       "name": "可轻踩油门驾驶车辆",
@@ -279,7 +287,7 @@
       "category": "",
       "description": "",
       "id": 50,
-      "order": 34
+      "order": 35
     },
     {
       "name": "泊车中，请注意周围环境",
@@ -287,7 +295,7 @@
       "category": "",
       "description": "",
       "id": 51,
-      "order": 35
+      "order": 36
     },
     {
       "name": "驾驶模式不满足，泊车暂不可用",
@@ -295,7 +303,15 @@
       "category": "",
       "description": "",
       "id": 52,
-      "order": 36
+      "order": 37
+    },
+    {
+      "name": "泊车暂停",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 1 0 0 2 0 0",
+      "category": "",
+      "description": "",
+      "id": 56,
+      "order": 38
     },
     {
       "name": "导航前置",
@@ -303,7 +319,7 @@
       "category": "",
       "description": "",
       "id": 54,
-      "order": 37
+      "order": 39
     },
     {
       "name": "剩余1000米 + 路名\"延安高架路\"",
@@ -311,7 +327,15 @@
       "category": "",
       "description": "",
       "id": 53,
-      "order": 38
+      "order": 40
+    },
+    {
+      "name": "重置ADASstrtParkingGenaralInfo",
+      "command": "adb shell dumpsys activity service com.bitech.pilotparking/com.bitech.intelligent.service.IntelligentDriveService soa ADASstrtParkingGenaralInfo 1 0 0 0 0 0",
+      "category": "",
+      "description": "",
+      "id": 57,
+      "order": 41
     }
   ]
 }

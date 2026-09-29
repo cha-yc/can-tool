@@ -19,6 +19,7 @@ Trae Work（字节，trae.cn 国内版）每日积分自动签到 · 单文件 �
   python trae_work_checkin.py login      浏览器授权登录（Windows 本地执行）
   python trae_work_checkin.py logout     查看 / 删除已保存凭证
   python trae_work_checkin.py tokens     查看已保存凭证的 Token 有效期
+  python trae_work_checkin.py refresh    强制刷新全部凭证的 Token（无需等签到触发）
 
 凭证：仅读取上述目录的 auth-<uid>.json。凭证不读环境变量；
      可选环境变量 RANDOM_SIGNIN / MAX_RANDOM_DELAY 控制签到前的随机延时（见下方常量区）。
@@ -1095,6 +1096,26 @@ def do_logout() -> int:
     return 0
 
 
+def do_refresh() -> int:
+    """强制刷新全部已保存凭证的 Token 并回写（不依赖签到触发）。"""
+    creds = load_creds()
+    if not creds:
+        print("⚠️  无已保存凭证")
+        return 1
+    print("== 强制刷新 Token ==")
+    all_ok = True
+    for i, (_src, uid, cred) in enumerate(creds, 1):
+        name = cred.get("screenName") or uid
+        t = Trae(cred, uid)
+        if t.refresh():
+            path = persist_cred(uid_of(t.user_id or uid), t.to_cred())
+            print(f"  {i}. [{name}] 刷新成功  {_fmt_token_exp(t.expires_at)}  ({path.name})")
+        else:
+            print(f"  {i}. [{name}] 刷新失败（refreshToken 可能已失效，请重新 login / import）")
+            all_ok = False
+    return 0 if all_ok else 1
+
+
 def do_tokens() -> int:
     """查看已保存凭证的 Token 有效期与剩余时长。"""
     creds = load_creds()
@@ -1126,15 +1147,18 @@ def do_tokens() -> int:
 # ---------------------------------------------------------------------------
 def menu() -> int:
     while True:
+        # 每轮清屏，让菜单独占一屏，不与上次操作输出混在一起
+        os.system("cls" if os.name == "nt" else "clear")
         n = len(load_creds())
-        print("\n" + "=" * 48)
+        print("=" * 48)
         print(f" Trae Work 每日签到   [{'青龙面板' if IS_QL else '本地'}模式]  凭证 {n} 个")
         print("=" * 48)
         print(" 1. 立即签到")
         print(" 2. 获取 Token（从本机 Trae 客户端导入）")
         print(" 3. 登录（浏览器授权）")
         print(" 4. 查看 Token 有效期")
-        print(" 5. 退出登录（删除凭证）")
+        print(" 5. 刷新 Token（立即换新并回写）")
+        print(" 6. 退出登录（删除凭证）")
         print(" 0. 退出程序")
         try:
             choice = input("请选择: ").strip()
@@ -1150,13 +1174,21 @@ def menu() -> int:
             elif choice == "4":
                 do_tokens()
             elif choice == "5":
+                do_refresh()
+            elif choice == "6":
                 do_logout()
             elif choice in ("0", "q", "Q"):
                 return 0
             else:
                 print("无效选择")
+                continue
         except Exception as e:
             print(f"❌ 操作失败: {e}")
+        # 操作结束后停顿一下，避免结果输出与菜单混在一起
+        try:
+            input("\n按回车返回菜单...")
+        except (EOFError, KeyboardInterrupt):
+            return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1171,6 +1203,7 @@ def usage() -> int:
     print("  python trae_work_checkin.py login     浏览器授权登录")
     print("  python trae_work_checkin.py logout    查看 / 删除凭证")
     print("  python trae_work_checkin.py tokens    查看 Token 有效期")
+    print("  python trae_work_checkin.py refresh   强制刷新全部凭证的 Token")
     return 1
 
 
@@ -1186,6 +1219,8 @@ def main() -> int:
         return do_logout()
     if cmd == "tokens":
         return do_tokens()
+    if cmd == "refresh":
+        return do_refresh()
     if cmd == "checkin":
         return do_checkin()
     if not cmd:
