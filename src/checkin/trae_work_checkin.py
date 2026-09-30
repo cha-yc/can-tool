@@ -975,36 +975,43 @@ def do_checkin(quick: bool = False) -> int:
 # ---------------------------------------------------------------------------
 # 获取 Token（从本机 Trae 客户端 storage.json 导入，Windows）
 # ---------------------------------------------------------------------------
-def _find_client_storage() -> Path | None:
+def _find_client_auth() -> tuple[Path, dict] | None:
+    """扫描本机各 Trae 客户端 storage.json，解密后返回 token 到期最新的 (路径, 凭证)。
+
+    客户端刷新 token 后不会把结果写回 storage.json，其内可能存有已作废的
+    旧 refreshToken，故不能固定取某个客户端，而应比较后取最新的凭证。
+    """
     appdata = os.getenv("APPDATA")
     if not appdata:
         return None
+    best: tuple[Path, dict] | None = None
+    best_exp = -1.0
     for name in ("TRAE SOLO CN", "Trae CN"):
         p = Path(appdata) / name / "User" / "globalStorage" / "storage.json"
-        if p.is_file():
-            return p
-    return None
+        if not p.is_file():
+            continue
+        try:
+            storage = json.loads(p.read_text(encoding="utf-8"))
+            enc = storage.get("iCubeAuthInfo://icube.cloudide")
+            auth = json.loads(decrypt_icube_auth(enc)) if enc else {}
+        except Exception:
+            continue
+        exp = _parse_expire(auth.get("expiredAt"))
+        if exp > best_exp:
+            best, best_exp = (p, auth), exp
+    return best
 
 
 def do_import() -> int:
     print("== 从 Trae 客户端获取 Token ==")
-    storage_path = _find_client_storage()
-    if not storage_path:
+    found = _find_client_auth()
+    if not found:
         print("❌ 未找到 Trae 客户端 storage.json（仅支持 Windows + 已登录的 Trae 客户端）")
         return 1
-    try:
-        storage = json.loads(storage_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"❌ 读取 storage.json 失败: {e}")
-        return 1
-    enc = storage.get("iCubeAuthInfo://icube.cloudide")
-    if not enc:
+    storage_path, auth = found
+    print(f"   来源: {storage_path.parents[2].name}（自动取 token 最新的客户端）")
+    if not auth:
         print("❌ storage.json 中无凭证，请先在 Trae 客户端登录")
-        return 1
-    try:
-        auth = json.loads(decrypt_icube_auth(enc))
-    except Exception as e:
-        print(f"❌ 凭证解密失败: {e}")
         return 1
     token = auth.get("token") or ""
     refresh_token = auth.get("refreshToken") or ""
