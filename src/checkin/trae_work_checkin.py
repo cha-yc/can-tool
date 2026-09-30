@@ -468,7 +468,11 @@ class Trae:
         new_refresh = result.get("RefreshToken") or result.get("refresh_token") or self.refresh_token
         expire_at = result.get("TokenExpireAt") or result.get("expiresAt")
         if not new_access:
-            log.warning("[Trae/%s] 刷新返回无 token", self.display)
+            err = (data.get("ResponseMetadata") or {}).get("Error") or {}
+            detail = ((err.get("Data") or {}).get("__Message.error")
+                      or err.get("Message")
+                      or json.dumps(data, ensure_ascii=False)[:200])
+            log.warning("[Trae/%s] 刷新返回无 token: %s", self.display, detail)
             return False
         self.access_token = new_access
         self.refresh_token = new_refresh
@@ -1033,15 +1037,19 @@ def do_import() -> int:
             except OSError:
                 pass
 
+    # refreshToken 与签发它的 client 绑定，用错 client 会报
+    # "refresh token is not matched to the client"，故按来源目录选 client_id
+    client_id = CLIENT_ID if client_dir.name == "TRAE SOLO CN" else TRAE_CLIENT_ID
+
     # 过期时间（毫秒/秒时间戳 或 ISO8601 字符串）
     expires_at = _parse_expire(auth.get("expiredAt"))
 
-    # 用 TRAE 客户端 client_id 换新 token，尽量延长有效期
+    # 用与凭证来源匹配的 client_id 换新 token，尽量延长有效期
     if refresh_token:
         try:
             ex = http_request("POST", f"{AUTH_BASE}/cloudide/api/v3/trae/oauth/ExchangeToken",
                               {"Content-Type": "application/json"},
-                              {"ClientID": TRAE_CLIENT_ID, "RefreshToken": refresh_token,
+                              {"ClientID": client_id, "RefreshToken": refresh_token,
                                "ClientSecret": "-", "UserID": user_id})
             result = ex.get("Result") or ex.get("data") or {}
             new_token = result.get("Token") or result.get("AccessToken")
@@ -1063,7 +1071,7 @@ def do_import() -> int:
         "accessToken": token,
         "refreshToken": refresh_token,
         "expiresAt": expires_at,
-        "clientId": TRAE_CLIENT_ID,
+        "clientId": client_id,
         "deviceId": device_id,
         "claimDeviceId": device_id,
         "fingerprint": {"brand": "", "type": "", "os": ""},   # 留空由签到时本机探测
