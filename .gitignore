@@ -222,3 +222,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# WorkBuddy 令牌存储与登录态备份（含长期 refreshToken，禁止提交）
+wb_tokens.json
+wb_token_store.json
+workbuddy-desktop.info*

@@ -10,12 +10,17 @@ WorkBuddy 桌面端 Token 自动获取脚本
   5. 支持 --out <file> 将 token 导出到文件
   6. 支持 --refresh 实验性刷新：走 Keycloak 标准协议用 refreshToken 换新 token，
      成功后自动备份原文件并回写（未公开接口，可能随官方版本失效）
+  7. 支持 --env 输出环境变量格式：stdout 仅一行 accessToken#refreshToken，
+     可直接粘贴为 workbuddy_checkin.py 的 WB_ACCESS_TOKENS（多账号用逗号拼接）；
+     其余提示信息全部走 stderr，保证 $(...) 捕获纯净
 
 用法示例：
   python get_workbuddy_token.py                # 打印 accessToken 和剩余有效期
   python get_workbuddy_token.py --copy         # 打印并复制到剪贴板
   python get_workbuddy_token.py --out token.txt  # 导出到文件
   python get_workbuddy_token.py --refresh      # 尝试刷新并回写登录态文件
+  python get_workbuddy_token.py --env          # 输出 accessToken#refreshToken
+  python get_workbuddy_token.py --env --refresh  # 先刷新再输出环境变量格式
 """
 
 import argparse
@@ -468,9 +473,10 @@ def find_auth_file() -> str:
     sys.exit(1)
 
 
-def load_auth_json(path: str) -> dict:
+def load_auth_json(path: str, info=sys.stdout) -> dict:
     """读取并解析登录态文件，返回其中的 auth 字段（含 token 信息）。
     若 accessToken/refreshToken 是 $wbEncrypted=1 加密对象，自动用 WorkBuddy 运行时解密。
+    info 指定提示信息输出流（--env 模式下传 stderr，保证 stdout 只有令牌）。
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -479,7 +485,7 @@ def load_auth_json(path: str) -> dict:
         print("[错误] 文件中未找到 auth.accessToken 字段，文件结构可能已变化。", file=sys.stderr)
         sys.exit(1)
     if _is_encrypted_field(auth.get("accessToken")) or _is_encrypted_field(auth.get("refreshToken")):
-        print("[信息] 检测到加密凭据，使用 WorkBuddy 运行时解密...")
+        print("[信息] 检测到加密凭据，使用 WorkBuddy 运行时解密...", file=info)
         auth = decrypt_auth_fields(auth)
     return auth
 
@@ -538,7 +544,7 @@ def refresh_token_via_keycloak(refresh_token: str, iss: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def write_back_auth_file(path: str, auth: dict, new_tokens: dict) -> None:
+def write_back_auth_file(path: str, auth: dict, new_tokens: dict, info=sys.stdout) -> None:
     """
     将刷新后的 token 回写到登录态文件。
     回写前先在同级目录生成带时间戳的备份，避免写坏导致客户端登录态丢失。
@@ -547,7 +553,7 @@ def write_back_auth_file(path: str, auth: dict, new_tokens: dict) -> None:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     backup = f"{path}.bak_{stamp}"
     shutil.copy2(path, backup)
-    print(f"[备份] 原文件已备份至：{backup}")
+    print(f"[备份] 原文件已备份至：{backup}", file=info)
 
     # 2. 基于服务端返回的字段计算过期时间戳（毫秒）
     now_ms = int(time.time() * 1000)
@@ -567,7 +573,7 @@ def write_back_auth_file(path: str, auth: dict, new_tokens: dict) -> None:
     full["auth"] = new_auth
     with open(path, "w", encoding="utf-8") as f:
         json.dump(full, f, ensure_ascii=False, indent=2)
-    print("[完成] 新 token 已回写登录态文件。")
+    print("[完成] 新 token 已回写登录态文件。", file=info)
 
 
 def main() -> None:
@@ -576,15 +582,21 @@ def main() -> None:
     parser.add_argument("--out", metavar="FILE", help="将 token 信息导出为 JSON 文件")
     parser.add_argument("--refresh", action="store_true",
                         help="[实验性] 用 refreshToken 换取新 token 并回写登录态文件")
+    parser.add_argument("--env", action="store_true",
+                        help="stdout 仅输出 accessToken#refreshToken 一行，可直接设为 WB_ACCESS_TOKENS；"
+                             "提示信息走 stderr。--copy/--out 同步作用于该格式")
     args = parser.parse_args()
 
+    # --env 模式下所有提示信息走 stderr，stdout 只保留令牌行，保证捕获纯净
+    info = sys.stderr if args.env else sys.stdout
+
     path = find_auth_file()
-    print(f"[信息] 登录态文件：{path}")
+    print(f"[信息] 登录态文件：{path}", file=info)
     with open(path, "r", encoding="utf-8") as f:
         _raw_auth = json.load(f).get("auth") or {}
     encrypted_mode = (_is_encrypted_field(_raw_auth.get("accessToken")) or
                       _is_encrypted_field(_raw_auth.get("refreshToken")))
-    auth = load_auth_json(path)
+    auth = load_auth_json(path, info=info)
 
     # ------- 实验性刷新分支 -------
     if args.refresh:
@@ -592,7 +604,7 @@ def main() -> None:
         jwt_payload = decode_jwt_payload(rt)
         # 优先使用 JWT 中声明的 iss（身份提供方地址），比硬编码更抗迁移
         iss = jwt_payload.get("iss", DEFAULT_ISS)
-        print(f"[信息] 刷新端点所属域：{iss}")
+        print(f"[信息] 刷新端点所属域：{iss}", file=info)
         try:
             new_tokens = refresh_token_via_keycloak(rt, iss)
         except Exception as e:
@@ -600,17 +612,33 @@ def main() -> None:
                   "可能原因：接口变更、refreshToken 已过期（需在客户端重新登录）。", file=sys.stderr)
             sys.exit(2)
         if encrypted_mode:
-            print("[信息] 加密模式下仅内存刷新，不回写文件（WorkBuddy 需要加密格式）")
+            print("[信息] 加密模式下仅内存刷新，不回写文件（WorkBuddy 需要加密格式）", file=info)
             auth = dict(auth,
                         accessToken=new_tokens["access_token"],
                         refreshToken=new_tokens.get("refresh_token", rt),
                         expiresAt=int(time.time() * 1000) + new_tokens.get("expires_in", 300) * 1000)
         else:
-            write_back_auth_file(path, auth, new_tokens)
-            auth = load_auth_json(path)  # 重新加载回写后的内容用于展示
+            write_back_auth_file(path, auth, new_tokens, info=info)
+            auth = load_auth_json(path, info=info)  # 重新加载回写后的内容用于展示
 
     access = auth["accessToken"]
+    refresh_tok = auth.get("refreshToken") or ""
     expires_at = auth.get("expiresAt")
+
+    # ------- 环境变量格式输出：accessToken#refreshToken -------
+    if args.env:
+        # JWT 只含 A-Za-z0-9._~- 和 =，不含 #，可安全用作访问/刷新令牌分隔符
+        env_line = f"{access}#{refresh_tok}" if refresh_tok else access
+        print(env_line)
+        if args.copy:
+            ret = os.system(f'powershell -NoProfile -Command "Set-Clipboard -Value \'{env_line}\'"')
+            print("[完成] 环境变量格式已复制到剪贴板" if ret == 0 else "[警告] 复制到剪贴板失败",
+                  file=sys.stderr)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as f:
+                f.write(env_line + "\n")
+            print(f"[完成] 环境变量格式已写入：{args.out}", file=sys.stderr)
+        return
 
     # ------- 展示结果 -------
     print("-" * 60)
